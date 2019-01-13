@@ -1,9 +1,12 @@
-import json
-from pprint import pprint
-import base64
 import argparse
-import os
+import base64
+import json
 import subprocess
+from pprint import pprint
+
+import requests
+
+NUM_RETRIES = 3
 
 map_file = 'data/cpcb/map.json'
 with open(map_file) as f:
@@ -35,7 +38,7 @@ def stringify_list(l):
 
 def get_str(site, city, state, from_d, to_d, p, pn):
     return '{{"criteria":"15 Minute","reportFormat":"Tabular","fromDate":"{} T00:00:00Z","toDate":"{} T23:59:59Z","state":"{}","city":"{}","station":"site_{}","parameter":[{}],"parameterNames":[{}]}}'.format(
-                                                                                        from_d, to_d,                                 state,        city,               site, stringify_list(p), stringify_list(pn))                                                        
+        from_d, to_d,                                 state,        city,               site, stringify_list(p), stringify_list(pn))
 
 
 def get_data(site, city, state, from_d, to_d):
@@ -45,12 +48,32 @@ def get_data(site, city, state, from_d, to_d):
     encoded = base64.b64encode(string.encode())
     # print(string)
     # print(str((encoded)))
-    command = "curl -k 'https://app.cpcbccr.com/caaqms/advanced_search' -H 'User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:61.0) Gecko/20100101 Firefox/61.0' -H 'Accept: q=0.8;application/json;q=0.9' -H 'Accept-Language: en-US,en;q=0.5' --compressed -H 'Referer: https://app.cpcbccr.com/ccr/' -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' -H 'Connection: keep-alive' --data '{}' > data/cpcb/site_{}_{}_{}.json".format((encoded.decode('ascii')), site, from_d, to_d)
-    proc = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True)
-    out, err = proc.communicate()
-    # print(out[:100], '------')
-    # print(command)
 
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:61.0) Gecko/20100101 Firefox/61.0',
+        'Accept': 'q=0.8;application/json;q=0.9',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Referer': 'https://app.cpcbccr.com/ccr/',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Connection': 'keep-alive',
+    }
+
+    data = (encoded.decode('ascii'))
+
+    for i in range(NUM_RETRIES):
+        response = requests.post(
+            'https://app.cpcbccr.com/caaqms/advanced_search', headers=headers, data=data, verify=False)
+
+
+        status = response.json()['status']
+        if status == 'success':
+            print(status)
+            with open('data/cpcb/site_{}_{}_{}.json'.format(site, from_d, to_d), 'w') as outfile:
+                json.dump(data, outfile)
+        else:
+            print("Failed attempt {} of {}.".format(i, NUM_RETRIES))
+    else:
+        print("Moving on.")
 
 def get_stations_in_city(city):
     for st in map['stations']:
@@ -87,18 +110,19 @@ def main():
 
 if __name__ == "__main__":
     days = {
-        1:31, 2:28, 3:31, 4:30, 5:31, 6:30, 7:31, 8:31, 9:30, 10:31, 11:30, 12:31
+        1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31
     }
     # sites_arr = [114,117,301,1420,108,1560,104,103,118,1421,1422,116,106,1423,1424,109,1425,122,1561,115,1427,1426,1429,105,1428,1431,125,1563,107,124,1430,113,119,
-    sites_arr = [301,106,109]
+    sites_arr = [301, 106, 109]
 
     def helper(site, i, year):
         print(site, i)
         m = str(i)
         if i < 10:
             m = '0'+m
-        get_data(str(site), 'Delhi', 'Delhi', '01-'+m+'-20'+str(year), str(days[i])+'-'+m+'-20'+str(year))
-    
+        get_data(str(site), 'Delhi', 'Delhi', '01-'+m+'-20' +
+                 str(year), str(days[i])+'-'+m+'-20'+str(year))
+
     # helper(106, 12, 13)
     # helper(109, 1, 14)
     # helper(109, 2, 14)
@@ -108,10 +132,12 @@ if __name__ == "__main__":
     print(len(sites_arr), "sites to download.")
     for site in sites_arr:
         print("Data for site", site)
-        for i in range(1,7):
+        for i in range(1, 7):
             print("\t month", i)
             m = str(i)
             if i < 10:
                 m = '0'+m
-            get_data(str(site), 'Delhi', 'Delhi', '01-'+m+'-2013', str(days[i])+'-'+m+'-2013')
-            get_data(str(site), 'Delhi', 'Delhi', '01-'+m+'-2014', str(days[i])+'-'+m+'-2014')
+            get_data(str(site), 'Delhi', 'Delhi', '01-' +
+                     m+'-2013', str(days[i])+'-'+m+'-2013')
+            get_data(str(site), 'Delhi', 'Delhi', '01-' +
+                     m+'-2014', str(days[i])+'-'+m+'-2014')
